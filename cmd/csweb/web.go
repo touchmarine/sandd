@@ -1,0 +1,349 @@
+// Original: https://github.com/google/codesearch/tree/v1.3.0-rc.1
+//
+// Original notice:
+//  Copyright 2020 The Go Authors. All rights reserved.
+//  Use of this source code is governed by a BSD-style
+//  license that can be found in the LICENSE file.
+
+package main
+
+import (
+	"archive/zip"
+	"bytes"
+	"embed"
+	"flag"
+	"fmt"
+	"html"
+	"io"
+	"io/fs"
+	"log"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/codesearch/index"
+	"github.com/google/codesearch/regexp"
+	"github.com/touchmarine/sandd/codesearchpatch"
+)
+
+var verboseFlag = flag.Bool("verbose", false, "print extra information")
+
+func main() {
+	http.HandleFunc("GET /", home)
+	http.Handle("GET /_static/", http.FileServer(http.FS(static)))
+	http.HandleFunc("GET /show/", show)
+	log.Fatal(http.ListenAndServe("localhost:2473", nil))
+}
+
+//go:embed _static
+var static embed.FS
+
+func home(w http.ResponseWriter, r *http.Request) {
+	qarg := r.FormValue("q")
+	farg := r.FormValue("f")
+
+	replaced := strings.ReplaceAll(homePage, "QUERY", html.EscapeString(qarg))
+	replaced = strings.ReplaceAll(replaced, "FILE", html.EscapeString(farg))
+	w.Write([]byte(replaced))
+	searchPartial(w, qarg, farg)
+
+	w.Write([]byte(
+		`
+    </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script>
+matchesNoTop = document.getElementById('matches-no-top')
+matchesNoBottom = document.getElementById('matches-no-bottom')
+matchesNoTop.textContent = matchesNoBottom.textContent
+</script>
+</body>
+</html>
+`))
+}
+
+const homePage = `
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css">
+<style>
+header {
+    margin-bottom: 32px;
+}
+.match {
+    margin-bottom: 32px;
+}
+.match a {
+    color: rgba(0, 0, 0, 0.9);
+    text-decoration: none;
+}
+</style>
+</head>
+
+<body>
+<header>
+    <form style="display: flex; column-gap: 32px;">
+        <label for="query">Search:</label>
+        <input type="search" id="query" name="q" value="QUERY" placeholder="Search (regex)" style="width: 100%;">
+
+        <label for="file">Path:</label>
+        <input type="search" id="file" name="f" value="FILE" placeholder="Filter Files (regex)" style="width: 100%;">
+
+        <button>Search</button>
+    </form>
+</header>
+<div class="container">
+    <!--
+    <aside>
+        <form>
+            <fieldset>
+                <legend>Paths</legend>
+
+                <input type="checkbox" id="dbt" name="paths" value="/dbt">
+                <label for="dbt">/dbt</label>
+            </fieldset>
+            <fieldset>
+                <legend>Languages</legend>
+
+                <input type="checkbox" id="go" name="languages" value="go">
+                <label for="go">Go</label>
+            </fieldset>
+            <button>Update</button>
+        </form>
+    </aside>
+    -->
+    <main>
+    <p id="matches-no-top" style="margin-bottom: 32px;"> matches in s</p>
+`
+
+func searchPartial(w io.Writer, qarg, farg string) {
+	g := codesearchpatch.Grep{
+		N:      true,
+		Limit:  10,
+		Stdout: w,
+		Stderr: w,
+		OnMatch: func(buf []byte, name string, lineno, lineStart, lineEnd int) {
+			fmt.Fprint(w, `<div class="match"`)
+			fmt.Fprintf(w, "<p><a href=\"/show/%s#L%d\">%s%d</a>:</p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, html.EscapeString(name), lineno)
+			fmt.Fprint(w, "<pre><code>")
+			before, match, after := codesearchpatch.LineContext(1, 1, buf, lineStart, lineEnd)
+			for _, line := range before {
+				fmt.Fprintf(w, "%s\n", line)
+			}
+			fmt.Fprintf(w, "%s\n", match)
+			for _, line := range after {
+				fmt.Fprintf(w, "%s\n", line)
+			}
+			fmt.Fprint(w, "</code></pre></div>\n")
+		},
+	}
+
+	pat := "(?m)" + qarg
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		fmt.Fprintf(w, "Bad query: %v\n", err)
+		return
+	}
+	g.Regexp = re
+	var fre *regexp.Regexp
+	if farg != "" {
+		fre, err = regexp.Compile(farg)
+		if err != nil {
+			fmt.Fprintf(w, "Bad -f flag: %v\n", err)
+			return
+		}
+	}
+	q := index.RegexpQuery(re.Syntax)
+	if *verboseFlag {
+		log.Printf("query: %s\n", q)
+	}
+
+	start := time.Now()
+	ix := index.Open(index.File())
+	ix.Verbose = *verboseFlag
+	post := ix.PostingQuery(q)
+	if *verboseFlag {
+		fmt.Fprintf(w, "post query identified %d possible files\n", len(post))
+	}
+
+	if fre != nil {
+		fnames := make([]int, 0, len(post))
+
+		for _, fileid := range post {
+			name := ix.Name(fileid)
+			if fre.MatchString(name.String(), true, true) < 0 {
+				continue
+			}
+			fnames = append(fnames, fileid)
+		}
+
+		if *verboseFlag {
+			fmt.Fprintf(w, "filename regexp matched %d files\n", len(fnames))
+		}
+		post = fnames
+	}
+
+	var (
+		zipFile   string
+		zipReader *zip.ReadCloser
+		zipMap    map[string]*zip.File
+	)
+
+	for _, fileid := range post {
+		if g.Limited {
+			break
+		}
+		name := ix.Name(fileid).String()
+		file, err := os.Open(name)
+		if err != nil {
+			if i := strings.Index(name, ".zip\x01"); i >= 0 {
+				zfile, zname := name[:i+4], name[i+5:]
+				if zfile != zipFile {
+					if zipReader != nil {
+						zipReader.Close()
+						zipMap = nil
+					}
+					zipFile = zfile
+					zipReader, err = zip.OpenReader(zfile)
+					if err != nil {
+						zipReader = nil
+					}
+					if zipReader != nil {
+						zipMap = make(map[string]*zip.File)
+						for _, file := range zipReader.File {
+							zipMap[file.Name] = file
+						}
+					}
+				}
+				file := zipMap[zname]
+				if file != nil {
+					r, err := file.Open()
+					if err != nil {
+						continue
+					}
+					g.Reader(r, name)
+					r.Close()
+					continue
+				}
+			}
+			continue
+		}
+		g.Reader(file, name)
+		file.Close()
+	}
+
+	fmt.Fprintf(w, "\n<p id='matches-no-bottom'>%d matches in %.3fs</p>\n", g.Matches, time.Since(start).Seconds())
+	if g.Limited {
+		fmt.Fprintf(w, "<p>more matches not shown due to match limit</p>\n")
+	}
+}
+
+func show(w http.ResponseWriter, r *http.Request) {
+	file := strings.TrimPrefix(r.URL.Path, "/show")
+	if strings.HasPrefix(file, "/") && filepath.IsAbs(file[1:]) {
+		// Turn /c:/foo into c:/foo on Windows.
+		file = file[1:]
+	}
+	// TODO maybe trim file by ix.roots
+	// TODO zips
+	info, err := os.Stat(file)
+	if err != nil {
+		// TODO
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if info.IsDir() {
+		dirs, err := os.ReadDir(file)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Write(serveDir(file, dirs))
+		return
+	}
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Write(serveFile(file, data))
+}
+
+func printHeader(buf *bytes.Buffer, file string) {
+	e := html.EscapeString
+	buf.WriteString("<!DOCTYPE html>\n<head>\n")
+	buf.WriteString("<link rel=\"stylesheet\" href=\"/_static/viewer.css\">\n")
+	buf.WriteString("<script src=\"/_static/viewer.js\"></script>\n")
+	fmt.Fprintf(buf, `<title>%s - code search</title>`, e(file))
+	buf.WriteString("\n</head><body onload=\"highlight()\"><pre>\n")
+	f := ""
+	for _, elem := range strings.Split(file, "/") {
+		f += "/" + elem
+		fmt.Fprintf(buf, `/<a href="/show%s">%s</a>`, e(f), e(elem))
+	}
+	fmt.Fprintf(buf, `</b> <small>(<a href="/">about</a>)</small>`)
+	fmt.Fprintf(buf, "\n\n")
+}
+
+func serveDir(file string, dir []fs.DirEntry) []byte {
+	var buf bytes.Buffer
+	e := html.EscapeString
+	printHeader(&buf, file)
+	for _, d := range dir {
+		// Note: file is the full path including mod@vers.
+		file := path.Join(file, d.Name())
+		fmt.Fprintf(&buf, "<a href=\"/show%s\">%s</a>\n", e(file), e(path.Base(file)))
+	}
+	return buf.Bytes()
+}
+
+var nl = []byte("\n")
+
+func serveFile(file string, data []byte) []byte {
+	if !isText(data) {
+		return data
+	}
+
+	var buf bytes.Buffer
+	e := html.EscapeString
+	printHeader(&buf, file)
+	n := 1 + bytes.Count(data, nl)
+	wid := len(fmt.Sprintf("%d", n))
+	wid = (wid+2+7)&^7 - 2
+	n = 1
+	for len(data) > 0 {
+		var line []byte
+		line, data, _ = bytes.Cut(data, nl)
+		fmt.Fprintf(&buf, "<span id=\"L%d\">%*d  %s\n</span>", n, wid, n, e(string(line)))
+		n++
+	}
+	return buf.Bytes()
+}
+
+// isText reports whether a significant prefix of s looks like correct UTF-8;
+// that is, if it is likely that s is human-readable text.
+func isText(s []byte) bool {
+	const max = 1024 // at least utf8.UTFMax
+	if len(s) > max {
+		s = s[0:max]
+	}
+	for i, c := range string(s) {
+		if i+utf8.UTFMax > len(s) {
+			// last char may be incomplete - ignore
+			break
+		}
+		if c == 0xFFFD || c < ' ' && c != '\n' && c != '\t' && c != '\f' {
+			// decoding error or control character - not a text file
+			return false
+		}
+	}
+	return true
+}
