@@ -45,11 +45,22 @@ var static embed.FS
 func home(w http.ResponseWriter, r *http.Request) {
 	qarg := r.FormValue("q")
 	farg := r.FormValue("f")
+	isCaseSensitive := r.FormValue("case-sensitive") != ""
+	isRegex := r.FormValue("regex") != ""
 
-	replaced := strings.ReplaceAll(homePage, "QUERY", html.EscapeString(qarg))
-	replaced = strings.ReplaceAll(replaced, "FILE", html.EscapeString(farg))
+	replacements := []string{
+		"QUERY", html.EscapeString(qarg),
+		"FILE", html.EscapeString(farg),
+	}
+	if isCaseSensitive {
+		replacements = append(replacements, "CASE-SENSITIVE", "checked")
+	}
+	if isRegex {
+		replacements = append(replacements, "REGEX", "checked")
+	}
+	replaced := strings.NewReplacer(replacements...).Replace(homePage)
 	w.Write([]byte(replaced))
-	searchPartial(w, qarg, farg)
+	searchPartial(w, qarg, farg, !isRegex, !isCaseSensitive)
 
 	w.Write([]byte(
 		`
@@ -89,12 +100,18 @@ header {
 
 <body>
 <header>
-    <form style="display: flex; column-gap: 32px;">
+    <form style="display: flex; column-gap: 32px; text-wrap: nowrap;">
         <label for="query">Search:</label>
         <input type="search" id="query" name="q" value="QUERY" placeholder="Search (regex)" style="width: 100%;">
 
         <label for="file">Path:</label>
         <input type="search" id="file" name="f" value="FILE" placeholder="Filter Files (regex)" style="width: 100%;">
+
+        <input type="checkbox" id="case-sensitive" name="case-sensitive" CASE-SENSITIVE>
+        <label for="case-sensitive">Case-Sensitive</label>
+
+        <input type="checkbox" id="regex" name="regex" REGEX>
+        <label for="regex">Regular Expression</label>
 
         <button>Search</button>
     </form>
@@ -123,7 +140,7 @@ header {
     <p id="matches-no-top" style="margin-bottom: 32px;"> matches in s</p>
 `
 
-func searchPartial(w io.Writer, qarg, farg string) {
+func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool) {
 	g := codesearchpatch.Grep{
 		N:      true,
 		Limit:  10,
@@ -145,7 +162,14 @@ func searchPartial(w io.Writer, qarg, farg string) {
 		},
 	}
 
-	pat := "(?m)" + qarg
+	pat := qarg
+	if literal {
+		pat = backslashEscapeAllPunctuation(pat)
+	}
+	pat = "(?m)" + pat // multiline: ^ and $ match begin/end line in addition to begin/end text
+	if caseInsensitive {
+		pat = "(?i)" + pat // case-insensitive
+	}
 	re, err := regexp.Compile(pat)
 	if err != nil {
 		fmt.Fprintf(w, "Bad query: %v\n", err)
@@ -346,4 +370,43 @@ func isText(s []byte) bool {
 		}
 	}
 	return true
+}
+
+// This map is based on a codesearch test, it's not from a definitive source:
+// https://github.com/google/codesearch/blob/b34f2a0c5ce12be3c9dc28038640afece6bee523/regexp/regexp_test.go#L136
+func backslashEscapeAllPunctuation(s string) string {
+	r := strings.NewReplacer(
+		`!`, `\!`,
+		`"`, `\"`,
+		`#`, `\#`,
+		`$`, `\$`,
+		`%`, `\%`,
+		`&`, `\&`,
+		`'`, `\'`,
+		`(`, `\(`,
+		`)`, `\)`,
+		`*`, `\*`,
+		`+`, `\+`,
+		`,`, `\,`,
+		`-`, `\-`,
+		`.`, `\.`,
+		`/`, `\/`,
+		`:`, `\:`,
+		`;`, `\;`,
+		`<`, `\<`,
+		`=`, `\=`,
+		`>`, `\>`,
+		`?`, `\?`,
+		`@`, `\@`,
+		`[`, `\[`,
+		`\`, `\\`,
+		`]`, `\]`,
+		`^`, `\^`,
+		`_`, `\_`,
+		`{`, `\{`,
+		`|`, `\|`,
+		`}`, `\}`,
+		`~`, `\~`,
+	)
+	return r.Replace(s)
 }
