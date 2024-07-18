@@ -1,0 +1,14 @@
+log:
+  level: DEBUG
+
+entryPoints:
+  http:
+    address: :80
+
+api:
+  insecure: true # activate API directly on the traefik entryPoint
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic_conf.yaml
+    watch: true

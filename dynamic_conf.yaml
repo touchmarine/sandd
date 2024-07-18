@@ -1,0 +1,11 @@
+http:
+  routers:
+    to-codesearch:
+      rule: "Host(`cs.sd.test`)"
+      service: codesearch
+
+  services:
+    codesearch:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:2473"
