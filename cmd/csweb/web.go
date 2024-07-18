@@ -148,7 +148,7 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 		Stderr: w,
 		OnMatch: func(buf []byte, name string, lineno, lineStart, lineEnd int) {
 			fmt.Fprint(w, `<div class="match"`)
-			fmt.Fprintf(w, "<p><a href=\"/show/%s#L%d\">%s%d</a>:</p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, html.EscapeString(name), lineno)
+			fmt.Fprintf(w, "<p><a href=\"/show/%s#L%d\">%s:%d</a></p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, html.EscapeString(name), lineno)
 			fmt.Fprint(w, "<pre><code>")
 			before, match, after := codesearchpatch.LineContext(1, 1, buf, lineStart, lineEnd)
 			for _, line := range before {
