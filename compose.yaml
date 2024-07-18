@@ -17,13 +17,10 @@ services:
       - "8888:8888"
     volumes:
       # only this dir is persisted (everything else, including installed packages, is not!)
-      - jupyter-work:/home/jovyan/work
+      - $HOME/.sandd/jupyter/work:/home/jovyan/work
 
     # change ownership of volume mount to fix permission denied errors
     user: root # necessary to change ownership at runtime
     environment:
       CHOWN_HOME: yes # change owner to jovyan
       CHOWN_HOME_OPTS: "-R" # recursive
-
-volumes:
-  jupyter-work:
