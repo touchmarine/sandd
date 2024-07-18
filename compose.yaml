@@ -8,3 +8,22 @@ services:
     volumes:
       - ./traefik.yaml:/etc/traefik/traefik.yaml
       - ./dynamic_conf.yaml:/etc/traefik/dynamic_conf.yaml
+
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:python-3.11
+    # remove token for convenience (unsafe)
+    command: start-notebook.py --NotebookApp.token='' -ServerApp.root_dir=/home/jovyan/work
+    ports:
+      - "8888:8888"
+    volumes:
+      # only this dir is persisted (everything else, including installed packages, is not!)
+      - jupyter-work:/home/jovyan/work
+
+    # change ownership of volume mount to fix permission denied errors
+    user: root # necessary to change ownership at runtime
+    environment:
+      CHOWN_HOME: yes # change owner to jovyan
+      CHOWN_HOME_OPTS: "-R" # recursive
+
+volumes:
+  jupyter-work:
