@@ -3,6 +3,7 @@ services:
     image: traefik:v3.1
     ports:
       - "80:80" # HTTP
+      - "443:443" # HTTPS
       - "8080:8080" # traefik dashboard + API
     volumes:
       - ./traefik.yaml:/etc/traefik/traefik.yaml

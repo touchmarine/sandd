@@ -3,6 +3,8 @@ http:
     to-codesearch:
       rule: "Host(`cs.sd.test`)"
       service: codesearch
+      # route tls and ignore non-tls requests
+      tls: {}
 
   services:
     codesearch:
