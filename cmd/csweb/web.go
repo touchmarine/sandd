@@ -33,6 +33,8 @@ import (
 var verboseFlag = flag.Bool("verbose", false, "print extra information")
 
 func main() {
+	flag.Parse()
+
 	http.HandleFunc("GET /", home)
 	http.Handle("GET /_static/", http.FileServer(http.FS(static)))
 	http.HandleFunc("GET /show/", show)
