@@ -17,6 +17,9 @@ api:
   insecure: true # activate API directly on the traefik entryPoint
 
 providers:
+  docker:
+    exposedByDefault: false
+
   file:
     filename: /etc/traefik/dynamic_conf.yaml
     watch: true

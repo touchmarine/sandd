@@ -8,6 +8,7 @@ services:
     volumes:
       - ./traefik.yaml:/etc/traefik/traefik.yaml
       - ./dynamic_conf.yaml:/etc/traefik/dynamic_conf.yaml
+      - /var/run/docker.sock:/var/run/docker.sock:ro # so it can listen to docker events
 
   jupyter:
     image: quay.io/jupyter/scipy-notebook:python-3.11
@@ -24,3 +25,8 @@ services:
     environment:
       CHOWN_HOME: yes # change owner to jovyan
       CHOWN_HOME_OPTS: "-R" # recursive
+
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.jupyter.rule=Host(`jupyter.sd.test`)
+      - traefik.http.routers.jupyter.tls=true
