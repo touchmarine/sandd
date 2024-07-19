@@ -30,3 +30,15 @@ services:
       - traefik.enable=true
       - traefik.http.routers.jupyter.rule=Host(`jupyter.sd.test`)
       - traefik.http.routers.jupyter.tls=true
+
+  memos:
+    image: neosmemo/memos:0.22
+    ports:
+      - "5230:5230"
+    volumes:
+      - $HOME/.sandd/memos:/var/opt/memos
+
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.memos.rule=Host(`memos.sd.test`)
+      - traefik.http.routers.memos.tls=true
