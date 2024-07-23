@@ -1,5 +1,11 @@
 http:
   routers:
+    to-sandd:
+      rule: "Host(`sd.test`)"
+      service: sandd
+      # route tls and ignore non-tls requests
+      tls: {}
+
     to-codesearch:
       rule: "Host(`cs.sd.test`)"
       service: codesearch
@@ -7,6 +13,11 @@ http:
       tls: {}
 
   services:
+    sandd:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:2472"
+
     codesearch:
       loadBalancer:
         servers:
