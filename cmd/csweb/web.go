@@ -143,25 +143,49 @@ header {
 `
 
 func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool) {
+	var b bytes.Buffer
+	prevName := ""
 	g := codesearchpatch.Grep{
 		N:      true,
 		Limit:  10,
 		Stdout: w,
 		Stderr: w,
 		OnMatch: func(buf []byte, name string, lineno, lineStart, lineEnd int) {
-			fmt.Fprint(w, `<div class="match"`)
-			fmt.Fprintf(w, "<p><a href=\"/show/%s#L%d\">%s:%d</a></p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, html.EscapeString(name), lineno)
-			fmt.Fprint(w, "<pre><code>")
+			if name == prevName {
+				// the same file
+				b.Reset() // clear closing tag
+			} else {
+				// new file
+				fmt.Fprint(&b, `<div class="match">`)
+				fmt.Fprintf(&b, "<p><a href=\"/show/%s\">%s</a></p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), html.EscapeString(name))
+			}
+
+			fmt.Fprintf(&b, "<small style=\"float: right;\"><a href=\"/show/%s#L%d\">#%d</a></small>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, lineno)
+			fmt.Fprint(&b, "<pre><code>")
 			before, match, after := codesearchpatch.LineContext(1, 1, buf, lineStart, lineEnd)
 			for _, line := range before {
-				fmt.Fprintf(w, "%s\n", line)
+				fmt.Fprintf(&b, "%s\n", line)
 			}
-			fmt.Fprintf(w, "%s\n", match)
+			fmt.Fprintf(&b, "%s\n", match)
 			for _, line := range after {
-				fmt.Fprintf(w, "%s\n", line)
+				fmt.Fprintf(&b, "%s\n", line)
 			}
-			fmt.Fprint(w, "</code></pre></div>\n")
+			fmt.Fprint(&b, "</code></pre>\n")
+
+			b.WriteTo(w) // flush
+
+			// Buffer the closing tag so we have all match's html here. The buffer is:
+			// - reset if the next match is in the same file,
+			// - flushed if the next match is not in the same file or if end of matches.
+			fmt.Fprint(&b, "</div>\n")
+
+			prevName = name
 		},
+	}
+
+	afterReader := func() {
+		// flush any unread buffer (should be closing div tag)
+		b.WriteTo(w)
 	}
 
 	pat := qarg
@@ -255,6 +279,7 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 						continue
 					}
 					g.Reader(r, name)
+					afterReader()
 					r.Close()
 					continue
 				}
@@ -262,6 +287,7 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 			continue
 		}
 		g.Reader(file, name)
+		afterReader()
 		file.Close()
 	}
 
