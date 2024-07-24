@@ -15,8 +15,8 @@ services:
     # remove token for convenience (unsafe)
     # set memory to 2GiB (default=0.5 GiB)
     command: start-notebook.py --IdentityProvider.token='' -ServerApp.root_dir=/home/jovyan/work -ServerApp.max_buffer_size=2147483648
-    ports:
-      - "8888:8888"
+    expose:
+      - "8888"
     volumes:
       # only this dir is persisted (everything else, including installed packages, is not!)
       - $HOME/.sandd/jupyter/work:/home/jovyan/work
@@ -34,8 +34,8 @@ services:
 
   memos:
     image: neosmemo/memos:0.22
-    ports:
-      - "5230:5230"
+    expose:
+      - "5230"
     volumes:
       - $HOME/.sandd/memos:/var/opt/memos
 
