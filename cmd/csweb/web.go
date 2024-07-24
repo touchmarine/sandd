@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -75,6 +76,12 @@ func home(w http.ResponseWriter, r *http.Request) {
 matchesNoTop = document.getElementById('matches-no-top')
 matchesNoBottom = document.getElementById('matches-no-bottom')
 matchesNoTop.textContent = matchesNoBottom.textContent
+document.querySelectorAll('[data-ext-pattern]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const input = document.getElementById('file')
+        input.value = btn.dataset.extPattern
+    })
+})
 </script>
 </body>
 </html>
@@ -219,6 +226,14 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 		fmt.Fprintf(w, "post query identified %d possible files\n", len(post))
 	}
 
+	exts := map[string]int{}
+	for _, fileid := range post {
+		name := ix.Name(fileid).String()
+		ext := filepath.Ext(name)
+		// trigram match count, not actual matched files count
+		exts[ext]++
+	}
+
 	if fre != nil {
 		fnames := make([]int, 0, len(post))
 
@@ -228,12 +243,32 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 				continue
 			}
 			fnames = append(fnames, fileid)
+			exts[filepath.Ext(name.String())]++
 		}
 
 		if *verboseFlag {
 			fmt.Fprintf(w, "filename regexp matched %d files\n", len(fnames))
 		}
 		post = fnames
+	}
+
+	// sort extensions by count desc
+	type extInfo struct {
+		ext   string
+		count int
+	}
+	exts2 := make([]extInfo, 0, len(exts))
+	for ext, count := range exts {
+		exts2 = append(exts2, extInfo{ext: ext, count: count})
+	}
+	sort.Slice(exts2, func(i, j int) bool {
+		return exts2[i].count > exts2[j].count
+	})
+
+	for _, e := range exts2 {
+		// Don't show count as it's misleading since it's not the actual count
+		// (this serves as a plain suggestion).
+		fmt.Fprintf(w, "<button data-ext-pattern=\".*\\%s$\">%s</button>\n", e.ext, e.ext)
 	}
 
 	var (
