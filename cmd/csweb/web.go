@@ -93,10 +93,6 @@ header {
 .match {
     margin-bottom: 32px;
 }
-.match a {
-    color: rgba(0, 0, 0, 0.9);
-    text-decoration: none;
-}
 </style>
 </head>
 
@@ -157,7 +153,7 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 			} else {
 				// new file
 				fmt.Fprint(&b, `<div class="match">`)
-				fmt.Fprintf(&b, "<p><a href=\"/show/%s\">%s</a></p>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), html.EscapeString(name))
+				fmt.Fprintf(&b, "<p>%s (<a href=\"/show/%s\">show</a>)</p>\n", html.EscapeString(name), html.EscapeString(strings.ReplaceAll(name, "#", ">")))
 			}
 
 			fmt.Fprintf(&b, "<small style=\"float: right;\"><a href=\"/show/%s#L%d\">#%d</a></small>\n", html.EscapeString(strings.ReplaceAll(name, "#", ">")), lineno, lineno)
