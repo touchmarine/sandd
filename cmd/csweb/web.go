@@ -76,6 +76,12 @@ func home(w http.ResponseWriter, r *http.Request) {
 matchesNoTop = document.getElementById('matches-no-top')
 matchesNoBottom = document.getElementById('matches-no-bottom')
 matchesNoTop.textContent = matchesNoBottom.textContent
+document.querySelectorAll('[data-cur-dir]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        const input = document.getElementById('file')
+        input.value = btn.dataset.curDir
+    })
+})
 document.querySelectorAll('[data-ext-pattern]').forEach((btn) => {
     btn.addEventListener('click', () => {
         const input = document.getElementById('file')
@@ -250,6 +256,54 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 		}
 		post = fnames
 	}
+
+	// suggest directories to search
+	names := map[string]interface{}{}
+	for _, fileid := range post { // already filtered!
+		name := ix.Name(fileid).String()
+		names[name] = nil
+	}
+
+	getCurDir := func(dirPath string) string {
+		ff := filepath.ToSlash(farg)
+		if strings.HasPrefix(ff, "/") {
+			// is path (naive)
+			return ff
+		}
+		return "/"
+	}
+	curDir := getCurDir(farg)
+
+	dirs := map[string]int{}
+	for n := range names {
+		s0 := filepath.ToSlash(n)
+		s1, _ := strings.CutPrefix(s0, curDir)
+		s2, _ := strings.CutPrefix(s1, "/")
+		before, _, _ := strings.Cut(s2, "/")
+		if before == "" {
+			continue
+		}
+		dirs[before]++
+	}
+
+	// sort dirs by count desc
+	type dirInfo struct {
+		dir   string
+		count int
+	}
+	dirs2 := make([]dirInfo, 0, len(dirs))
+	for dir, count := range dirs {
+		dirs2 = append(dirs2, dirInfo{dir: dir, count: count})
+	}
+	sort.Slice(dirs2, func(i, j int) bool {
+		return dirs2[i].count > dirs2[j].count
+	})
+
+	for _, d := range dirs2 {
+		p := filepath.Join(curDir, d.dir)
+		fmt.Fprintf(w, "<button data-cur-dir=\"%s\">%s</button>\n", p, p)
+	}
+	fmt.Fprintf(w, "<hr>\n")
 
 	// sort extensions by count desc
 	type extInfo struct {
