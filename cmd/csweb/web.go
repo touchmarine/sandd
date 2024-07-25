@@ -243,7 +243,6 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 				continue
 			}
 			fnames = append(fnames, fileid)
-			exts[filepath.Ext(name.String())]++
 		}
 
 		if *verboseFlag {
