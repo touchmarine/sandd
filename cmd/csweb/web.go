@@ -29,6 +29,7 @@ import (
 	"github.com/google/codesearch/index"
 	"github.com/google/codesearch/regexp"
 	"github.com/touchmarine/sandd/codesearchpatch"
+	"github.com/touchmarine/sandd/dirtree"
 )
 
 var verboseFlag = flag.Bool("verbose", false, "print extra information")
@@ -264,44 +265,38 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 		names[name] = nil
 	}
 
-	getCurDir := func(dirPath string) string {
-		ff := filepath.ToSlash(farg)
-		if strings.HasPrefix(ff, "/") {
-			// is path (naive)
-			return ff
-		}
-		return "/"
-	}
-	curDir := getCurDir(farg)
-
-	dirs := map[string]int{}
+	t := &dirtree.Node{}
 	for n := range names {
-		s0 := filepath.ToSlash(n)
-		s1, _ := strings.CutPrefix(s0, curDir)
-		s2, _ := strings.CutPrefix(s1, "/")
-		before, _, _ := strings.Cut(s2, "/")
-		if before == "" {
-			continue
-		}
-		dirs[before]++
+		t.Add(n)
 	}
 
-	// sort dirs by count desc
-	type dirInfo struct {
-		dir   string
-		count int
-	}
-	dirs2 := make([]dirInfo, 0, len(dirs))
-	for dir, count := range dirs {
-		dirs2 = append(dirs2, dirInfo{dir: dir, count: count})
-	}
-	sort.Slice(dirs2, func(i, j int) bool {
-		return dirs2[i].count > dirs2[j].count
+	// find first dir that branches out
+	var parentNodes []*dirtree.Node
+	var dirs []*dirtree.Node
+	t.WalkChildren(func(cur *dirtree.Node, children []*dirtree.Node) bool {
+		parentNodes = append(parentNodes, cur)
+		if len(children) > 1 {
+			// branches out
+			dirs = children
+			return false // stop
+		}
+		return true
 	})
 
-	for _, d := range dirs2 {
-		p := filepath.Join(curDir, d.dir)
-		fmt.Fprintf(w, "<button data-cur-dir=\"%s\">%s</button>\n", p, p)
+	// sort dirs by count desc
+	sort.Slice(dirs, func(i, j int) bool {
+		return dirs[i].Count > dirs[j].Count
+	})
+
+	parentSegments := make([]string, len(parentNodes))
+	for i, n := range parentNodes {
+		parentSegments[i] = n.Value
+	}
+	for _, d := range dirs {
+		base := filepath.Join(parentSegments...)
+		rel := d.Value
+		abs := filepath.Join(base, rel)
+		fmt.Fprintf(w, "<button data-cur-dir=\"%s\">%s</button>\n", abs, rel)
 	}
 	fmt.Fprintf(w, "<hr>\n")
 
