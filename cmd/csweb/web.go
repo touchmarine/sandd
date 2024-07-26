@@ -269,11 +269,12 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 	for n := range names {
 		t.Add(n)
 	}
+	tt := t.Compressed()
 
 	// find first dir that branches out
 	var parentNodes []*dirtree.Node
 	var dirs []*dirtree.Node
-	t.WalkChildren(func(cur *dirtree.Node, children []*dirtree.Node) bool {
+	tt.WalkChildren(func(cur *dirtree.Node, children []*dirtree.Node) bool {
 		parentNodes = append(parentNodes, cur)
 		if len(children) > 1 {
 			// branches out

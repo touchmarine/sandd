@@ -46,6 +46,29 @@ func (n *Node) Add(path string) {
 	c.Add(after)
 }
 
+// Compressed returns a new radix/compressed trie.
+// (Any node with only one child gets merged with its parent).
+func (n *Node) Compressed() *Node {
+	nn := &Node{
+		Value: n.Value,
+		Count: n.Count,
+	}
+	if len(n.Children) == 1 {
+		c := n.Children[0]
+		cc := c.Compressed()
+		nn.Value = filepath.Join(nn.Value, cc.Value)
+		nn.Count = cc.Count
+		nn.Children = append(nn.Children, cc.Children...)
+		return nn
+	}
+	nn.Children = make([]*Node, len(n.Children))
+	for i, c := range n.Children {
+		cc := c.Compressed()
+		nn.Children[i] = cc
+	}
+	return nn
+}
+
 // WalkChildren traverses breadth-first and callbacks with the current node and
 // children. It doesn't callback from the starting node.
 func (n *Node) WalkChildren(fn func(cur *Node, children []*Node) bool) {
