@@ -10,6 +10,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"embed"
 	"flag"
 	"fmt"
@@ -21,7 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -284,9 +285,12 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 		return true
 	})
 
-	// sort dirs by count desc
-	sort.Slice(dirs, func(i, j int) bool {
-		return dirs[i].Count > dirs[j].Count
+	// sort dirs by count desc, value asc
+	slices.SortFunc(dirs, func(a, b *dirtree.Node) int {
+		if n := cmp.Compare(b.Count, a.Count); n != 0 { // desc
+			return n
+		}
+		return cmp.Compare(a.Value, b.Value)
 	})
 
 	parentSegments := make([]string, len(parentNodes))
@@ -301,7 +305,7 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 	}
 	fmt.Fprintf(w, "<hr>\n")
 
-	// sort extensions by count desc
+	// sort extensions by count desc, ext asc
 	type extInfo struct {
 		ext   string
 		count int
@@ -310,8 +314,11 @@ func searchPartial(w io.Writer, qarg, farg string, literal, caseInsensitive bool
 	for ext, count := range exts {
 		exts2 = append(exts2, extInfo{ext: ext, count: count})
 	}
-	sort.Slice(exts2, func(i, j int) bool {
-		return exts2[i].count > exts2[j].count
+	slices.SortFunc(exts2, func(a, b extInfo) int {
+		if n := cmp.Compare(b.count, a.count); n != 0 { // desc
+			return n
+		}
+		return cmp.Compare(a.ext, b.ext)
 	})
 
 	for _, e := range exts2 {
